@@ -1,11 +1,12 @@
 spring:
   application:
     name: aws-rds-create
+
+---
+# create-rds profile
+spring:
   profiles:
-    active: default
-  config:
-    activate:
-      on-profile: create-rds
+    active: create-rds
 
 rds:
   dbName: myappdb
@@ -17,8 +18,11 @@ rds:
 ---
 # Default profile (when no profile is active)
 spring:
-  config:
-    activate:
-      on-profile: default
+  profiles:
+    active: default
   main:
-    web-application-type: none  # Prevents web server from starting
+    web-application-type: none
+
+# AWS configuration (common to all profiles)
+aws:
+  region: ap-south-1
