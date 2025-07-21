@@ -47,10 +47,14 @@ public class RdsCreator implements CommandLineRunner {
 
     private void createRdsInstance() throws InterruptedException {
         // Save password to Secrets Manager
-        secretsManagerClient.createSecret(CreateSecretRequest.builder()
-                .name(secretName)
-                .secretString(masterPassword)
-                .build());
+        try {
+            secretsManagerClient.createSecret(CreateSecretRequest.builder()
+                    .name(secretName)
+                    .secretString(masterPassword)
+                    .build());
+        } catch (Exception e) {
+            logger.info("Secret already exists, skipping creation.");
+        }
 
         // Create RDS Instance
         CreateDbInstanceRequest request = CreateDbInstanceRequest.builder()
