@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: aws-rds-create
+  profiles:
+    active: default
+  config:
+    activate:
+      on-profile: create-rds
+
+rds:
+  dbName: myappdb
+  instanceIdentifier: myapp-db-instance
+  username: myappadmin
+  password: SuperSecretPass123!
+  secretName: myappdb-secret
+
+---
+# Default profile (when no profile is active)
+spring:
+  config:
+    activate:
+      on-profile: default
+  main:
+    web-application-type: none  # Prevents web server from starting

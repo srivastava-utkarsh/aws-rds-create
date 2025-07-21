@@ -1,60 +1,93 @@
 package com.utk.rds.services;
 
-import jakarta.annotation.PostConstruct;
-import org.springframework.stereotype.Service;
-import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
-import software.amazon.awssdk.regions.Region;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.context.annotation.Profile;
+import org.springframework.stereotype.Component;
 import software.amazon.awssdk.services.rds.RdsClient;
 import software.amazon.awssdk.services.rds.model.*;
+import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
+import software.amazon.awssdk.services.secretsmanager.model.CreateSecretRequest;
 
-@Service
-public class RdsCreator {
+@Component
+@Profile("create-rds")
+public class RdsCreator implements CommandLineRunner {
 
-	private final RdsClient rdsClient;
+    private static final Logger logger = LoggerFactory.getLogger(RdsCreator.class);
 
-	public RdsCreator(RdsClient rdsClient) {
-		this.rdsClient = RdsClient.builder()
-								.region(Region.AP_SOUTH_1)
-								.credentialsProvider(DefaultCredentialsProvider.create())
-								.build();
-	}
+    private final RdsClient rdsClient;
+    private final SecretsManagerClient secretsManagerClient;
 
-	@PostConstruct
-	public void createDbInstance(){
-		String dbInstanceId = "basic-crud-app";
+    @Value("${rds.dbName}")
+    private String dbName;
 
-		try {
-			DescribeDbInstancesResponse describeResponse = rdsClient.describeDBInstances(DescribeDbInstancesRequest.builder().build());
-			boolean exists = describeResponse.dbInstances().stream().anyMatch(db -> db.dbInstanceIdentifier().equalsIgnoreCase(dbInstanceId));
-			if (exists) {
-				System.out.println("DB instance already exists");
-				return;
-			}
+    @Value("${rds.instanceIdentifier}")
+    private String dbInstanceIdentifier;
 
-			CreateDbInstanceRequest request = CreateDbInstanceRequest.builder()
-																	.dbInstanceIdentifier(dbInstanceId)
-																	.allocatedStorage(20)
-																	.dbName("basic-crud-app")
-																	.engine("mysql")
-																	.masterUsername("admin")
-																	.masterUserPassword("password")
-																	.dbInstanceClass("db.t3.micro")
-																	.availabilityZone("ap-south-1a")
-																	.backupRetentionPeriod(0)
-																	.publiclyAccessible(true)
-																	.multiAZ(false)
-																	.storageType("gp2")
-																	.build();
+    @Value("${rds.username}")
+    private String masterUsername;
 
-			rdsClient.createDBInstance(request);
-			System.out.println("RDS instance creation initiated.");
-		} catch (DbInstanceAlreadyExistsException e) {
-			System.out.println("DB instance already exists");
-		} catch (RdsException e){
-			e.printStackTrace();
-		} catch (Exception e){
-			System.out.println("Inside general exception block");
-			e.printStackTrace();
-		}
-	}
+    @Value("${rds.password}")
+    private String masterPassword;
+
+    @Value("${rds.secretName}")
+    private String secretName;
+
+    public RdsCreator(RdsClient rdsClient, SecretsManagerClient secretsManagerClient) {
+        this.rdsClient = rdsClient;
+        this.secretsManagerClient = secretsManagerClient;
+    }
+
+    @Override
+    public void run(String... args) throws Exception {
+        createRdsInstance();
+    }
+
+    private void createRdsInstance() throws InterruptedException {
+        // Save password to Secrets Manager
+        secretsManagerClient.createSecret(CreateSecretRequest.builder()
+                .name(secretName)
+                .secretString(masterPassword)
+                .build());
+
+        // Create RDS Instance
+        CreateDbInstanceRequest request = CreateDbInstanceRequest.builder()
+                .dbInstanceIdentifier(dbInstanceIdentifier)
+                .allocatedStorage(20)
+                .dbInstanceClass("db.t3.micro")
+                .engine("mysql")
+                .masterUsername(masterUsername)
+                .masterUserPassword(masterPassword)
+                .dbName(dbName)
+                .vpcSecurityGroupIds()
+                .publiclyAccessible(true)
+                .backupRetentionPeriod(1)
+                .multiAZ(false)
+                .build();
+
+        rdsClient.createDBInstance(request);
+        logger.info("Waiting for DB to become available...");
+
+        boolean available = false;
+        while (!available) {
+            Thread.sleep(30000);
+            DescribeDbInstancesResponse describe = rdsClient.describeDBInstances(
+                    DescribeDbInstancesRequest.builder()
+                            .dbInstanceIdentifier(dbInstanceIdentifier)
+                            .build()
+            );
+
+            String status = describe.dbInstances().get(0).dbInstanceStatus();
+            logger.info("Current status: {}", status);
+            if ("available".equalsIgnoreCase(status)) {
+                available = true;
+                logger.info("✅ DB Instance available at: {}:{}", 
+                    describe.dbInstances().get(0).endpoint().address(),
+                    describe.dbInstances().get(0).endpoint().port()
+                );
+            }
+        }
+    }
 }
